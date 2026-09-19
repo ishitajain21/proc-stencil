@@ -39,15 +39,80 @@ int main(int argc, char **argv) {
         init_funcs[i]();
     }
 
+    // After subsystem init, idleproc should be current with no threads.
+    if (curproc != &idleproc) {
+        return 1;
+    }
+    if (idleproc.p_pid != 0) {
+        return 1;
+    }
+    if (idleproc.p_state != PROC_RUNNING) {
+        return 1;
+    }
+    if (idleproc.p_pproc != NULL) {
+        return 1;
+    }
+    if (idleproc.p_threads.size != 0) {
+        return 1;
+    }
+    if (proc_list.size != 0) {
+        return 1;
+    }
+    if (next_pid != 1) {
+        return 1;
+    }
+    if (curthr != NULL) {
+        return 1;
+
+    }
+
     void *bootstrap_stack = page_alloc_n(1);
     if (bootstrap_stack == NULL) {
         return -1;
     }
 
     context_setup(&bootstrap_ctx, start_initproc, 0, NULL, bootstrap_stack, PAGE_SIZE, NULL);
-    context_switch(&bios_ctx, &bootstrap_ctx); // saves this as the place where bios ctx will restore
+    context_switch(&bios_ctx, &bootstrap_ctx); 
+    if (proc_initproc == NULL) {
+        return 1;
+    }
+    if (proc_initproc->p_pid != 1) {
+        return 1;
+    }
+    if (proc_initproc->p_state != PROC_DEAD) {
+        return 1;
+    }
+    if (proc_initproc->p_pproc != &idleproc) {
+        return 1;
+    }
+    if (proc_initproc->p_status != 0) {
+        return 1;
+    }
 
-    // TODO: what do you expect when you get here? Add test cases here!
+    // Init was unlinked from the global list and from idle's children.
+    if (proc_list.size != 0) {
+        return 1;
+    }
+    if (idleproc.p_children.size != 0) {
+        return 1;
+    }
+    if (idleproc.p_state != PROC_RUNNING) {
+        return 1;
+    }
+
+    // We should still be "in" init's context as far as globals go.
+    if (curproc != proc_initproc) {
+        return 1;
+    }
+    if (curthr == NULL) {
+        return 1;
+    }
+    if (curthr->kt_state != KT_EXITED) {
+        return 1;
+    }
+    if (next_pid != 2) {
+        return 1;
+    }
 
     return 0;
 }

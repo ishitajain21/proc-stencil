@@ -50,5 +50,8 @@ boottest: $(ALL)
 forktest: $(ALL)
 	$(CC) $(FLAGS) $(INCLUDE) $(ALLOBJS) test/fork_test.c -o bin/fork_test
 
+killtest: $(ALL)
+	$(CC) $(FLAGS) $(INCLUDE) $(ALLOBJS) test/kill_test.c -o bin/kill_test
+
 clean:
 	rm -f bin/*

@@ -13,7 +13,7 @@ void *slab_obj_alloc(slab_allocator_t allocator) {
     free_ptr += allocator.objsize;
     return ret;
 }
-
+ 
 void slab_obj_free(slab_allocator_t allocator, void *obj) {
     // do nothing (for now)!
 }

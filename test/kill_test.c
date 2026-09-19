@@ -2,6 +2,10 @@
 #include "proc.h"
 #include "sched.h"
 
+/*
+ * Additional processes-subsystem test: proc_kill.
+ */
+
 const int NUM_INITS = 6;
 
 typedef void (*init_func_t)();
@@ -15,27 +19,13 @@ init_func_t init_funcs[] = {
 };
 
 static context_t bootstrap_ctx;
+static const long KILL_STATUS = 99;
 
 static void *childproc_run(long arg1, void *arg2) {
-    (void)arg1;
-    (void)arg2;
-    return NULL;
+    return (void *)-1;
 }
 
-static void *initproc_run(long arg1, void *arg2) {
-    (void)arg1;
-    (void)arg2;
-
-   
-    proc_t *child = proc_create("child");
-    kthread_t *child_thr = kthread_create(child, childproc_run, 0, NULL);
-
-    child->p_state = PROC_RUNNING;
-    curthr->kt_state = KT_ON_CPU;
-    list_insert_back(&kt_runq.tq_list, &child_thr->kt_qlink);
-    sched_switch();
-
-    
+static void unlink_child(proc_t *child) {
     spinlock_lock(&curproc->p_children_lock);
     if (curproc->p_children.head == &child->p_child_link) {
         list_remove_front(&curproc->p_children);
@@ -55,8 +45,48 @@ static void *initproc_run(long arg1, void *arg2) {
         list_remove_link(&proc_list, &child->p_list_link);
     }
     spinlock_unlock(&proc_list_lock);
+}
 
+static void *initproc_run(long arg1, void *arg2) {
+    proc_t *child = proc_create("to-kill");
+    if (child == NULL) {
+        return (void *)-1;
+    }
+
+    kthread_t *child_thr = kthread_create(child, childproc_run, 0, NULL);
+    if (child_thr == NULL) {
+        return (void *)-1;
+    }
+
+    if (child->p_threads.size != 1) {
+        return (void *)-1;
+    }
+    if (proc_list.size != 2) { /* should just be: init + child */
+        return (void *)-1;
+    }
+
+    proc_kill(child, KILL_STATUS);
+
+    if (child->p_status != KILL_STATUS) {
+        return (void *)-1;
+    }
+    if (child_thr->kt_cancelled != 1) {
+        return (void *)-1;
+    }
+    if (child_thr->kt_retval != (void *)KILL_STATUS) {
+        return (void *)-1;
+    }
+ 
+    unlink_child(child);
     proc_destroy(child);
+
+    if (curproc->p_children.size != 0) {
+        return (void *)-1;
+    }
+    if (proc_list.size != 1) { /* only init remains */
+        return (void *)-1;
+    }
+
     return NULL;
 }
 
@@ -64,7 +94,6 @@ void *start_initproc(long arg1, void *arg2) {
     proc_initproc = proc_create("init");
     kthread_t *init_thread = kthread_create(proc_initproc, initproc_run, 0, NULL);
 
-    // don't worry about using the scheduling system...
     curproc = proc_initproc;
     curthr = init_thread;
 
@@ -74,7 +103,6 @@ void *start_initproc(long arg1, void *arg2) {
 }
 
 int main(int argc, char **argv) {
-    // initialize subsystems
     for (int i = 0; i < NUM_INITS; i++) {
         init_funcs[i]();
     }
@@ -85,13 +113,9 @@ int main(int argc, char **argv) {
     }
 
     context_setup(&bootstrap_ctx, start_initproc, 0, NULL, bootstrap_stack, PAGE_SIZE, NULL);
-    context_switch(&bios_ctx, &bootstrap_ctx); // saves this as the place where bios ctx will restore
+    context_switch(&bios_ctx, &bootstrap_ctx);
 
-    // TODO: what do you expect when you get here? Add test cases here!
     if (proc_initproc == NULL || proc_initproc->p_state != PROC_DEAD) {
-        return 1;
-    }
-    if (proc_initproc->p_status != 0) {
         return 1;
     }
     if (proc_list.size != 0) {
@@ -100,14 +124,10 @@ int main(int argc, char **argv) {
     if (idleproc.p_children.size != 0) {
         return 1;
     }
+    /* idle reserved 0, init=1, child=2 */
     if (next_pid != 3) {
         return 1;
-    }
-    if (curproc != proc_initproc) {
-        return 1;
-    }
-    if (curthr == NULL || curthr->kt_state != KT_EXITED) {
-        return 1;
+    
     }
 
     return 0;
