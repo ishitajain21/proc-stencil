@@ -3,27 +3,24 @@
 kthread_t *curthr;
 
 /*
- * TODO: implement me!
- * Hints: we don't have any threads running yet... but what from the thread
- * subsystem needs ot be initialized?
+ * @brief Initializes the kthread subsystem at system startup.
  */
 void kthread_init() {
     slab_allocator_init(&kthread_allocator, sizeof(kthread_t));
-    curthr = NULL;
+    curthr = NULL;   // no thread executing yet
 }
 
 
 /*
- * TODO: implement me!
- * Hints:
- *   - make space for the new thread using the kthread allocator
- *   - set default values for thread fields
- *   - you will need to allocate a kernel stack
- *   - you will need to set up the thread's context
- *     --> for now, the page table for the process is NULL
- *   - remember to add the thread to the proc's p_thread list
- *   - initialize the kt_recent_core to ~0UL (unsigned -1)
- *   - return NULL if allocation not possible
+ * @brief Allocates a kernel thread with its own stack, sets up its context to run
+ * func(arg1, arg2) once scheduled, and links it into its process's
+ * p_threads list.
+ *
+ * @param proc: the process in which the thread will run
+ * @param func: the function that will be called by the newly created thread
+ * @param arg1: the first argument to func
+ * @param arg2: the second argument to func
+ * @return: the newly created thread
  */
 kthread_t *kthread_create(proc_t *proc, kthread_func_t func, long arg1,
                           void *arg2) {
@@ -32,6 +29,7 @@ kthread_t *kthread_create(proc_t *proc, kthread_func_t func, long arg1,
         return NULL;
     }
 
+    // each thread needs its own stack for context switching
     thread->kt_kstack = page_alloc_n(DEFAULT_STACK_SIZE_PAGES);
     if (thread->kt_kstack == NULL) {
         slab_obj_free(kthread_allocator, thread);
@@ -46,8 +44,8 @@ kthread_t *kthread_create(proc_t *proc, kthread_func_t func, long arg1,
     thread->kt_cancelled = 0;
     thread->kt_state = KT_RUNNABLE;
     spinlock_init(&thread->kt_lock);
-    list_link_init(&thread->kt_plink, thread);
-    list_link_init(&thread->kt_qlink, thread);
+    list_link_init(&thread->kt_plink, thread);  // links into p_threads
+    list_link_init(&thread->kt_qlink, thread);  // links into scheduler's run queue
 
     spinlock_lock(&proc->p_threads_lock);
     list_insert_back(&proc->p_threads, &thread->kt_plink);
@@ -57,27 +55,26 @@ kthread_t *kthread_create(proc_t *proc, kthread_func_t func, long arg1,
 }
 
 /*
- * TODO: implement me!
- * Hints:
- *   - the only parts of the context that must be initialized are c_kstack and
- *     c_kstacksz
- *   - the thread's process should be set outside of this function
- *   - copy over the retval, errno, and cancelled... other fields should be
- *     freshly initialized
- *   - remember to protect access to the thread via its spinlock
- *   - see kthread_create for more hints!
+ * @brief Creates a copy of an existing thread with a fresh stack, to be used when
+ * spawning a new process that should resume where an existing thread left off 
+ *
+ * @param thread: the thread to clone
+ * @return: the newly created thread
  */
 kthread_t *kthread_clone(kthread_t *old_thread) {
     kthread_t *thread = slab_obj_alloc(kthread_allocator);
     if (thread == NULL) {
         return NULL;
     }
+
+    // clone gets its own stack
     thread->kt_kstack = page_alloc_n(DEFAULT_STACK_SIZE_PAGES);
     if (thread->kt_kstack == NULL) {
         slab_obj_free(kthread_allocator, thread);
         return NULL;
     }
 
+    // copy over what should be carried forward from the original thread
     spinlock_lock(&old_thread->kt_lock);
     thread->kt_retval = old_thread->kt_retval;
     thread->kt_errno = old_thread->kt_errno;
@@ -86,6 +83,7 @@ kthread_t *kthread_clone(kthread_t *old_thread) {
 
     thread->kt_ctx.c_kstack = thread->kt_kstack;
     thread->kt_ctx.c_kstacksz = DEFAULT_STACK_SIZE_PAGES * PAGE_SIZE;
+
     thread->kt_proc = NULL; // set by caller
     thread->kt_state = KT_RUNNABLE;
     spinlock_init(&thread->kt_lock);
@@ -96,17 +94,15 @@ kthread_t *kthread_clone(kthread_t *old_thread) {
 }
 
 /*
- * TODO: implement me!
- * Hints:
- *   - deallocate thread memory
- *   - remove thread from process' thread list
- *   - protect all accesses to shared data
- *   - don't forget to free thread's stack!
-  cancel -> exit -> destroy 
+ * Frees a thread's resources: its stack, its spot in the process's
+ * thread list, and the kthread_t struct.
+ *
+ * @param thread: the thread to free
  */
 void kthread_destroy(kthread_t *thread) {
     spinlock_lock(&thread->kt_proc->p_threads_lock);
-    // list_remove_link does not update head/tail
+    // list_remove_link does not update head/tail, so use front/back helpers
+    // when the link is at an end
     if (thread->kt_proc->p_threads.head == &thread->kt_plink) {
         list_remove_front(&thread->kt_proc->p_threads);
     } else if (thread->kt_proc->p_threads.tail == &thread->kt_plink) {
@@ -120,11 +116,10 @@ void kthread_destroy(kthread_t *thread) {
 }
 
 /*
- * TODO: implement me!
- * Hints:
- *   - cannot "cancel" the current thread, so call exit
- *   - mark the thread as cancelled and stop executing
- *   - remember to the protect access to the thread
+ * Forcibly stops a thread. A thread cancelling itself is treated as an exit.
+ *
+ * @param thread: the thread to be canceled
+ * @param retval: the reutrn value for the thread
  */
 void kthread_cancel(kthread_t *thread, void *retval) {
     if (thread == curthr) {
@@ -138,9 +133,9 @@ void kthread_cancel(kthread_t *thread, void *retval) {
 }
 
 /*
- * TODO: implement me!
- * Hints: there's (some but) not much to do here... remember, it's up to the
- * parent process to manage its threads!
+ * Exits the current thread, notifying its process
+ *
+ * @param retval: the return value for the thread
  */
 void kthread_exit(void *retval) {
     curthr->kt_retval = retval;
