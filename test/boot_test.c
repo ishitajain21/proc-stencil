@@ -73,6 +73,8 @@ int main(int argc, char **argv) {
 
     context_setup(&bootstrap_ctx, start_initproc, 0, NULL, bootstrap_stack, PAGE_SIZE, NULL);
     context_switch(&bios_ctx, &bootstrap_ctx); 
+
+    // initproc should have run and exited cleanly
     if (proc_initproc == NULL) {
         return 1;
     }

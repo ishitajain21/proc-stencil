@@ -25,6 +25,9 @@ static void *childproc_run(long arg1, void *arg2) {
     return (void *)-1;
 }
 
+/*
+* removes child from proc_list and its parent's p_children
+*/ 
 static void unlink_child(proc_t *child) {
     spinlock_lock(&curproc->p_children_lock);
     if (curproc->p_children.head == &child->p_child_link) {
@@ -47,6 +50,10 @@ static void unlink_child(proc_t *child) {
     spinlock_unlock(&proc_list_lock);
 }
 
+/* 
+ * creates a child, kills it, and checks that the kill status and cancellation
+ * passed down to both the process and its thread.
+*/
 static void *initproc_run(long arg1, void *arg2) {
     proc_t *child = proc_create("to-kill");
     if (child == NULL) {
@@ -67,6 +74,8 @@ static void *initproc_run(long arg1, void *arg2) {
 
     proc_kill(child, KILL_STATUS);
 
+    // killing the child should have recorded its status
+    // and marked its one thread as cancelled
     if (child->p_status != KILL_STATUS) {
         return (void *)-1;
     }
@@ -115,6 +124,8 @@ int main(int argc, char **argv) {
     context_setup(&bootstrap_ctx, start_initproc, 0, NULL, bootstrap_stack, PAGE_SIZE, NULL);
     context_switch(&bios_ctx, &bootstrap_ctx);
 
+    // after the kill-and-reap cycle inside initproc_run, the system should look like
+    // only init ever existed
     if (proc_initproc == NULL || proc_initproc->p_state != PROC_DEAD) {
         return 1;
     }

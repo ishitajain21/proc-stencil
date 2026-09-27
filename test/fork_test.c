@@ -35,7 +35,7 @@ static void *initproc_run(long arg1, void *arg2) {
     list_insert_back(&kt_runq.tq_list, &child_thr->kt_qlink);
     sched_switch();
 
-    
+    // unlink the child from proc_list and our p_children before destroying it
     spinlock_lock(&curproc->p_children_lock);
     if (curproc->p_children.head == &child->p_child_link) {
         list_remove_front(&curproc->p_children);
@@ -87,7 +87,8 @@ int main(int argc, char **argv) {
     context_setup(&bootstrap_ctx, start_initproc, 0, NULL, bootstrap_stack, PAGE_SIZE, NULL);
     context_switch(&bios_ctx, &bootstrap_ctx); // saves this as the place where bios ctx will restore
 
-    // TODO: what do you expect when you get here? Add test cases here!
+    // initproc exited cleanly after its child was created, run, and fully reaped.
+    // nothing should remain in proc_list or idleproc's p_children.
     if (proc_initproc == NULL || proc_initproc->p_state != PROC_DEAD) {
         return 1;
     }
